@@ -16,11 +16,10 @@ async def startup_event():
     await database.create_indexes()
 
 # CORS configuration - must be added before routers
-origins = os.getenv("CORS_ORIGINS", "").split(",")
-
+# Allow all origins for development and deployment flexibility
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=False,  # Must be False when allow_origins is ["*"]
     allow_methods=["*"],
     allow_headers=["*"],
