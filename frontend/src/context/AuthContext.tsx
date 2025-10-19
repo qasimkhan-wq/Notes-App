@@ -28,61 +28,108 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [user, setUser] = useState<User | null>(null);
 
-  useEffect(() => {
-    const storedUser = localStorage.getItem("currentUser");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+  const fetchCurrentUser = useCallback(async () => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/auth/me`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
+        } else {
+          localStorage.removeItem("token");
+        }
+      } catch (error) {
+        console.error("Failed to fetch user", error);
+        localStorage.removeItem("token");
+      }
     }
   }, []);
 
+  useEffect(() => {
+    fetchCurrentUser();
+  }, [fetchCurrentUser]);
+
   const login = useCallback(
     async (email: string, password: string): Promise<boolean> => {
-      const users = JSON.parse(localStorage.getItem("users") || "[]");
-      const existingUser = users.find(
-        (u: any) => u.email === email && u.password === password,
-      );
+      try {
+        const formData = new URLSearchParams();
+        formData.append("username", email);
+        formData.append("password", password);
 
-      if (existingUser) {
-        setUser(existingUser);
-        localStorage.setItem("currentUser", JSON.stringify(existingUser));
-        toast.success("Logged in successfully!");
-        return true;
-      } else {
-        toast.error("Invalid email or password.");
+        const response = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/auth/login`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: formData.toString(),
+          },
+        );
+
+        if (response.ok) {
+          const { access_token } = await response.json();
+          localStorage.setItem("token", access_token);
+          await fetchCurrentUser();
+          toast.success("Logged in successfully!");
+          return true;
+        } else {
+          const errorData = await response.json();
+          toast.error(errorData.detail || "Invalid email or password.");
+          return false;
+        }
+      } catch (error) {
+        toast.error("An unexpected error occurred. Please try again.");
         return false;
       }
     },
-    [],
+    [fetchCurrentUser],
   );
 
   const register = useCallback(
     async (email: string, password: string): Promise<boolean> => {
-      const users = JSON.parse(localStorage.getItem("users") || "[]");
-      const existingUser = users.find((u: any) => u.email === email);
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/auth/signup`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, password }),
+          },
+        );
 
-      if (existingUser) {
-        toast.error("User already exists.");
+        if (response.ok) {
+          const { access_token } = await response.json();
+          localStorage.setItem("token", access_token);
+          await fetchCurrentUser();
+          toast.success("Account created and logged in successfully!");
+          return true;
+        } else {
+          const errorData = await response.json();
+          toast.error(errorData.detail || "Failed to create account.");
+          return false;
+        }
+      } catch (error) {
+        toast.error("An unexpected error occurred. Please try again.");
         return false;
       }
-
-      const newUser = {
-        id: new Date().toISOString(),
-        email,
-        password,
-      };
-      users.push(newUser);
-      localStorage.setItem("users", JSON.stringify(users));
-      setUser(newUser);
-      localStorage.setItem("currentUser", JSON.stringify(newUser));
-      toast.success("Account created and logged in successfully!");
-      return true;
     },
-    [],
+    [fetchCurrentUser],
   );
 
   const logout = useCallback(() => {
     setUser(null);
-    localStorage.removeItem("currentUser");
+    localStorage.removeItem("token");
     toast.info("Logged out.");
   }, []);
 

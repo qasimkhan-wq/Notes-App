@@ -1,29 +1,19 @@
-from __future__ import annotations
-from pydantic import BaseModel, EmailStr, Field
-from bson import ObjectId
+from pydantic import BaseModel
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-class UserInDB(BaseModel):
-    email: EmailStr
-    hashed_password: str
+class User(BaseModel):
+    id: int
+    email: str
 
     class Config:
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+        orm_mode = True
 
 class Token(BaseModel):
     access_token: str
     token_type: str
-
-class TokenData(BaseModel):
-    email: EmailStr | None = None
 
 class NoteBase(BaseModel):
     title: str
@@ -33,5 +23,8 @@ class NoteCreate(NoteBase):
     pass
 
 class Note(NoteBase):
-    id: str
-    owner_id: str
+    id: int
+    owner_id: int
+
+    class Config:
+        orm_mode = True

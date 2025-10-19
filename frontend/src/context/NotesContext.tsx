@@ -20,6 +20,7 @@ export interface Note {
 
 interface NotesContextType {
   notes: Note[];
+  fetchNotes: () => Promise<void>;
   createNote: (title: string, content: string) => Promise<boolean>;
   getNoteById: (id: string) => Note | undefined;
   updateNote: (
@@ -38,23 +39,39 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({
   const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
 
-  const getNotesFromStorage = useCallback(() => {
-    if (!user) return [];
-    const storedNotes = localStorage.getItem(`notes_${user.id}`);
-    return storedNotes ? JSON.parse(storedNotes) : [];
+  const fetchNotes = useCallback(async () => {
+    if (!user) {
+      setNotes([]);
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL}/notes`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setNotes(data);
+      } else {
+        toast.error("Failed to fetch notes.");
+      }
+    } catch (error) {
+      toast.error("An error occurred while fetching notes.");
+    }
   }, [user]);
 
-  const saveNotesToStorage = useCallback(
-    (notesToSave: Note[]) => {
-      if (!user) return;
-      localStorage.setItem(`notes_${user.id}`, JSON.stringify(notesToSave));
-    },
-    [user],
-  );
-
   useEffect(() => {
-    setNotes(getNotesFromStorage());
-  }, [user, getNotesFromStorage]);
+    fetchNotes();
+  }, [user, fetchNotes]);
 
   const createNote = useCallback(
     async (title: string, content: string): Promise<boolean> => {
@@ -63,21 +80,39 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({
         return false;
       }
 
-      const newNote: Note = {
-        id: new Date().toISOString(),
-        title,
-        content,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+      const token = localStorage.getItem("token");
+      if (!token) {
+        toast.error("Authentication token not found.");
+        return false;
+      }
 
-      const updatedNotes = [...notes, newNote];
-      setNotes(updatedNotes);
-      saveNotesToStorage(updatedNotes);
-      toast.success("Note created successfully!");
-      return true;
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/notes`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ title, content }),
+          },
+        );
+
+        if (response.ok) {
+          await fetchNotes();
+          toast.success("Note created successfully!");
+          return true;
+        } else {
+          toast.error("Failed to create note.");
+          return false;
+        }
+      } catch (error) {
+        toast.error("An error occurred while creating the note.");
+        return false;
+      }
     },
-    [user, notes, saveNotesToStorage],
+    [user, fetchNotes],
   );
 
   const getNoteById = useCallback(
@@ -94,18 +129,39 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({
         return false;
       }
 
-      const updatedNotes = notes.map((note) =>
-        note.id === id
-          ? { ...note, title, content, updated_at: new Date().toISOString() }
-          : note,
-      );
+      const token = localStorage.getItem("token");
+      if (!token) {
+        toast.error("Authentication token not found.");
+        return false;
+      }
 
-      setNotes(updatedNotes);
-      saveNotesToStorage(updatedNotes);
-      toast.success("Note updated successfully!");
-      return true;
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/notes/${id}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ title, content }),
+          },
+        );
+
+        if (response.ok) {
+          await fetchNotes();
+          toast.success("Note updated successfully!");
+          return true;
+        } else {
+          toast.error("Failed to update note.");
+          return false;
+        }
+      } catch (error) {
+        toast.error("An error occurred while updating the note.");
+        return false;
+      }
     },
-    [user, notes, saveNotesToStorage],
+    [user, fetchNotes],
   );
 
   const deleteNote = useCallback(
@@ -115,18 +171,42 @@ export const NotesProvider: React.FC<{ children: React.ReactNode }> = ({
         return false;
       }
 
-      const updatedNotes = notes.filter((note) => note.id !== id);
-      setNotes(updatedNotes);
-      saveNotesToStorage(updatedNotes);
-      toast.success("Note deleted successfully!");
-      return true;
+      const token = localStorage.getItem("token");
+      if (!token) {
+        toast.error("Authentication token not found.");
+        return false;
+      }
+
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/notes/${id}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (response.ok) {
+          await fetchNotes();
+          toast.success("Note deleted successfully!");
+          return true;
+        } else {
+          toast.error("Failed to delete note.");
+          return false;
+        }
+      } catch (error) {
+        toast.error("An error occurred while deleting the note.");
+        return false;
+      }
     },
-    [user, notes, saveNotesToStorage],
+    [user, fetchNotes],
   );
 
   return (
     <NotesContext.Provider
-      value={{ notes, createNote, getNoteById, updateNote, deleteNote }}
+      value={{ notes, fetchNotes, createNote, getNoteById, updateNote, deleteNote }}
     >
       {children}
     </NotesContext.Provider>

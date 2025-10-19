@@ -1,51 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pymongo.mongo_client import MongoClient
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
+from . import database, schemas
+from .auth import get_current_user
 
-from schemas import Note, NoteCreate, UserInDB
-from auth import get_current_user
-from database import db
+router = APIRouter(
+    prefix="/api/v1/notes",
+    tags=["notes"],
+    dependencies=[Depends(get_current_user)]
+)
 
-router = APIRouter()
+@router.post("/", response_model=schemas.Note)
+def create_note(note: schemas.NoteCreate, current_user: schemas.User = Depends(get_current_user)):
+    new_note = database.create_note(note, current_user.id)
+    return schemas.Note(**new_note)
 
-@router.post("/", response_model=Note)
-async def create_note(note: NoteCreate, current_user: UserInDB = Depends(get_current_user)):
-    note_dict = note.dict()
-    note_dict["owner_id"] = current_user.id
-    result = await db.notes.insert_one(note_dict)
-    created_note = await db.notes.find_one({"_id": result.inserted_id})
-    created_note["id"] = str(created_note["_id"])
-    return Note(**created_note)
+@router.get("/", response_model=List[schemas.Note])
+def read_notes(current_user: schemas.User = Depends(get_current_user)):
+    notes = database.get_notes(current_user.id)
+    return [schemas.Note(**note) for note in notes]
 
-@router.get("/", response_model=List[Note])
-async def get_notes(current_user: UserInDB = Depends(get_current_user)):
-    notes = []
-    cursor = db.notes.find({"owner_id": current_user.id})
-    async for document in cursor:
-        document["id"] = str(document["_id"])
-        notes.append(Note(**document))
-    return notes
-
-@router.put("/{note_id}", response_model=Note)
-async def update_note(note_id: str, note: NoteCreate, current_user: UserInDB = Depends(get_current_user)):
-    existing_note = await db.notes.find_one({"_id": ObjectId(note_id)})
-    if not existing_note or existing_note["owner_id"] != current_user.id:
+@router.get("/{note_id}", response_model=schemas.Note)
+def read_note(note_id: int, current_user: schemas.User = Depends(get_current_user)):
+    note = database.get_note(note_id, current_user.id)
+    if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
-    
-    await db.notes.update_one({"_id": ObjectId(note_id)}, {"$set": note.dict()})
-    updated_note = await db.notes.find_one({"_id": ObjectId(note_id)})
-    updated_note["id"] = str(updated_note["_id"])
-    return Note(**updated_note)
+    return schemas.Note(**note)
 
-@router.delete("/{note_id}", response_model=dict)
-async def delete_note(note_id: str, current_user: UserInDB = Depends(get_current_user)):
-    existing_note = await db.notes.find_one({"_id": ObjectId(note_id)})
-    if not existing_note or existing_note["owner_id"] != current_user.id:
+@router.put("/{note_id}", response_model=schemas.Note)
+def update_note(note_id: int, note: schemas.NoteCreate, current_user: schemas.User = Depends(get_current_user)):
+    updated_note = database.update_note(note_id, note, current_user.id)
+    if updated_note is None:
         raise HTTPException(status_code=404, detail="Note not found")
-        
-    result = await db.notes.delete_one({"_id": ObjectId(note_id)})
-    if result.deleted_count == 1:
-        return {"message": "Note deleted successfully"}
-    raise HTTPException(status_code=500, detail="Failed to delete note")
+    return schemas.Note(**updated_note)
+
+@router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note(note_id: int, current_user: schemas.User = Depends(get_current_user)):
+    database.delete_note(note_id, current_user.id)
+    return {"message": "Note deleted successfully"}
