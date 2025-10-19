@@ -3,7 +3,7 @@ from pathlib import Path
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from dotenv import load_dotenv
-from .schemas import NoteCreate, UserCreate
+from schemas import NoteCreate, UserCreate
 
 # Load .env file from backend directory
 env_path = Path(__file__).parent / '.env'

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
-from . import database, schemas
-from .auth import get_current_user
+import database
+import schemas
+from auth import get_current_user
 
 router = APIRouter(
     prefix="/api/v1/notes",
