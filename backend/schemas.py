@@ -1,15 +1,19 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional
 
 class UserCreate(BaseModel):
     email: str
     password: str
 
 class User(BaseModel):
-    id: int
+    id: str = Field(alias="_id")
     email: str
 
     class Config:
-        orm_mode = True
+        populate_by_name = True
+        json_encoders = {
+            str: str
+        }
 
 class Token(BaseModel):
     access_token: str
@@ -23,8 +27,11 @@ class NoteCreate(NoteBase):
     pass
 
 class Note(NoteBase):
-    id: int
-    owner_id: int
+    id: str = Field(alias="_id")
+    owner_id: str
 
     class Config:
-        orm_mode = True
+        populate_by_name = True
+        json_encoders = {
+            str: str
+        }

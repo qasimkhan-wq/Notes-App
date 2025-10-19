@@ -1,106 +1,104 @@
-import sqlite3
+import os
+from pathlib import Path
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
+from dotenv import load_dotenv
 from .schemas import NoteCreate, UserCreate
 
-DATABASE_URL = "notes.db"
+# Load .env file from backend directory
+env_path = Path(__file__).parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
-def get_db_connection():
-    conn = sqlite3.connect(DATABASE_URL)
-    conn.row_factory = sqlite3.Row
-    return conn
+MONGODB_URI = os.getenv("MONGODB_URI")
+if not MONGODB_URI:
+    raise ValueError("MONGODB_URI environment variable is not set")
 
-def create_tables():
-    conn = get_db_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT NOT NULL UNIQUE,
-            hashed_password TEXT NOT NULL
-        );
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            owner_id INTEGER NOT NULL,
-            FOREIGN KEY (owner_id) REFERENCES users (id)
-        );
-    """)
-    conn.commit()
-    conn.close()
+DATABASE_NAME = "notes_app"
 
-def create_user(user: UserCreate, hashed_password: str):
-    conn = get_db_connection()
+# MongoDB client
+client = AsyncIOMotorClient(MONGODB_URI)
+db = client[DATABASE_NAME]
+
+# Collections
+users_collection = db["users"]
+notes_collection = db["notes"]
+
+async def create_indexes():
+    """Create indexes for better query performance"""
+    await users_collection.create_index("email", unique=True)
+    await notes_collection.create_index("owner_id")
+
+async def create_user(user: UserCreate, hashed_password: str):
+    user_doc = {
+        "email": user.email,
+        "hashed_password": hashed_password
+    }
+    result = await users_collection.insert_one(user_doc)
+    return {"id": str(result.inserted_id), "email": user.email}
+
+async def get_user_by_email(email: str):
+    user = await users_collection.find_one({"email": email})
+    if user:
+        user["_id"] = str(user["_id"])
+    return user
+
+async def create_note(note: NoteCreate, user_id: str):
+    note_doc = {
+        "title": note.title,
+        "content": note.content,
+        "owner_id": user_id
+    }
+    result = await notes_collection.insert_one(note_doc)
+    return {
+        "id": str(result.inserted_id),
+        "title": note.title,
+        "content": note.content,
+        "owner_id": user_id
+    }
+
+async def get_notes(user_id: str):
+    notes = []
+    cursor = notes_collection.find({"owner_id": user_id})
+    async for note in cursor:
+        note["_id"] = str(note["_id"])
+        notes.append(note)
+    return notes
+
+async def get_note(note_id: str, user_id: str):
     try:
-        cursor = conn.execute(
-            "INSERT INTO users (email, hashed_password) VALUES (?, ?)",
-            (user.email, hashed_password),
-        )
-        conn.commit()
-        return {"id": cursor.lastrowid, "email": user.email}
-    finally:
-        conn.close()
-
-def get_user_by_email(email: str):
-    conn = get_db_connection()
-    try:
-        user = conn.execute(
-            "SELECT * FROM users WHERE email = ?", (email,)
-        ).fetchone()
-        return user
-    finally:
-        conn.close()
-
-def create_note(note: NoteCreate, user_id: int):
-    conn = get_db_connection()
-    try:
-        cursor = conn.execute(
-            "INSERT INTO notes (title, content, owner_id) VALUES (?, ?, ?)",
-            (note.title, note.content, user_id),
-        )
-        conn.commit()
-        return {"id": cursor.lastrowid, **note.dict(), "owner_id": user_id}
-    finally:
-        conn.close()
-
-def get_notes(user_id: int):
-    conn = get_db_connection()
-    try:
-        notes = conn.execute(
-            "SELECT * FROM notes WHERE owner_id = ?", (user_id,)
-        ).fetchall()
-        return notes
-    finally:
-        conn.close()
-
-def get_note(note_id: int, user_id: int):
-    conn = get_db_connection()
-    try:
-        note = conn.execute(
-            "SELECT * FROM notes WHERE id = ? AND owner_id = ?", (note_id, user_id)
-        ).fetchone()
+        note = await notes_collection.find_one({
+            "_id": ObjectId(note_id),
+            "owner_id": user_id
+        })
+        if note:
+            note["_id"] = str(note["_id"])
         return note
-    finally:
-        conn.close()
+    except Exception:
+        return None
 
-def update_note(note_id: int, note: NoteCreate, user_id: int):
-    conn = get_db_connection()
+async def update_note(note_id: str, note: NoteCreate, user_id: str):
     try:
-        conn.execute(
-            "UPDATE notes SET title = ?, content = ? WHERE id = ? AND owner_id = ?",
-            (note.title, note.content, note_id, user_id),
+        result = await notes_collection.update_one(
+            {"_id": ObjectId(note_id), "owner_id": user_id},
+            {"$set": {"title": note.title, "content": note.content}}
         )
-        conn.commit()
-        return {"id": note_id, **note.dict(), "owner_id": user_id}
-    finally:
-        conn.close()
+        if result.modified_count > 0:
+            return {
+                "id": note_id,
+                "title": note.title,
+                "content": note.content,
+                "owner_id": user_id
+            }
+        return None
+    except Exception:
+        return None
 
-def delete_note(note_id: int, user_id: int):
-    conn = get_db_connection()
+async def delete_note(note_id: str, user_id: str):
     try:
-        conn.execute("DELETE FROM notes WHERE id = ? AND owner_id = ?", (note_id, user_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-create_tables()
+        result = await notes_collection.delete_one({
+            "_id": ObjectId(note_id),
+            "owner_id": user_id
+        })
+        return result.deleted_count > 0
+    except Exception:
+        return False

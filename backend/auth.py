@@ -46,18 +46,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    user = database.get_user_by_email(email)
+    user = await database.get_user_by_email(email)
     if user is None:
         raise credentials_exception
-    return schemas.User(id=user['id'], email=user['email'])
+    return schemas.User(id=user['_id'], email=user['email'])
 
 @router.post("/signup", response_model=schemas.Token)
-def signup(user: schemas.UserCreate):
-    db_user = database.get_user_by_email(user.email)
+async def signup(user: schemas.UserCreate):
+    db_user = await database.get_user_by_email(user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     hashed_password = get_password_hash(user.password)
-    new_user = database.create_user(user, hashed_password)
+    new_user = await database.create_user(user, hashed_password)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": new_user["email"]}, expires_delta=access_token_expires
@@ -65,8 +65,8 @@ def signup(user: schemas.UserCreate):
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/login", response_model=schemas.Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = database.get_user_by_email(form_data.username)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = await database.get_user_by_email(form_data.username)
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

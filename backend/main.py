@@ -2,11 +2,16 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from . import auth, notes
+from . import auth, notes, database
 
 load_dotenv()
 
 app = FastAPI()
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database indexes on startup"""
+    await database.create_indexes()
 
 # CORS configuration - must be added before routers
 origins = os.getenv("CORS_ORIGINS", "").split(",")
